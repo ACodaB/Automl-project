@@ -1,4 +1,4 @@
-# 🚀 AutoML & Experiment Tracking Platform
+# AutoML & Experiment Tracking Platform
 
 An end-to-end **AutoML system built with Python and Streamlit** that automates the complete machine learning workflow — from data preprocessing to deployment.
 
