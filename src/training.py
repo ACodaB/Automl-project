@@ -9,6 +9,7 @@ from src.data import get_tuning_data
 from src.util import detect_columns
 from src.preprocessing import build_preprocessor, build_pipeline
 from src.registry import save_model,make_json_safe
+import numpy as np
 
 def run_experiments(X_train, X_test, y_train, y_test,
                     selected_models, problem_type, feature_method,dataset_id):
@@ -65,12 +66,26 @@ def run_experiments(X_train, X_test, y_train, y_test,
         metrics = evaluate_model(y_test, preds, problem_type)
         training_time = time.time() - start_time
 
+        # store small sample of training data (for drift detection)
+        sample_size = int(0.05 * len(X_train))
+
+        # keep within limits(upper and lower bounds)
+        sample_size = max(100, sample_size)   # minimum datasize
+        sample_size = min(500, sample_size)   # maximum datasize
+
+        train_sample = X_train.sample(
+            sample_size,
+            random_state=42
+        ).to_dict(orient="list")
+
         safe_metadata = make_json_safe({
         "model": model_name,
         "params": best_params,
         "metrics": metrics,
         "features":list(X_train.columns),
-        "dataset_id":dataset_id
+        "dataset_id":dataset_id,
+        "train_sample": train_sample
+        
         })
         
         #save model and metadata

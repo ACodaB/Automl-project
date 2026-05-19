@@ -1,0 +1,30 @@
+{
+    "model": "XGBoost",
+    "params": {
+        "model__n_estimators": 93,
+        "model__max_depth": 3,
+        "model__learning_rate": 0.023993242906812727,
+        "feature_selection__k": 7
+    },
+    "metrics": {
+        "Accuracy": 0.7877094972067039,
+        "F1 Score": 0.7813923506660937,
+        "Precision": 0.7926439958733186,
+        "Recall": 0.7877094972067039
+    },
+    "features": [
+        "PassengerId",
+        "Pclass",
+        "Name",
+        "Sex",
+        "Age",
+        "SibSp",
+        "Parch",
+        "Ticket",
+        "Fare",
+        "Cabin",
+        "Embarked"
+    ],
+    "dataset_id": "2e0e4b0aeeb40b47ee0915eba73534bc",
+    "version": 3
+}

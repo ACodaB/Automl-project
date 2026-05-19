@@ -1,0 +1,25 @@
+{
+    "model": "Random Forest",
+    "params": {
+        "model__n_estimators": 92,
+        "model__max_depth": 12
+    },
+    "metrics": {
+        "Accuracy": 0.7653631284916201,
+        "F1 Score": 0.7517909957279001,
+        "Precision": 0.7827237513263362,
+        "Recall": 0.7653631284916201
+    },
+    "features": [
+        "Pclass",
+        "Name",
+        "Sex",
+        "Age",
+        "SibSp",
+        "Parch",
+        "Ticket",
+        "Embarked"
+    ],
+    "dataset_id": "2e0e4b0aeeb40b47ee0915eba73534bc",
+    "version": 4
+}
