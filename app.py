@@ -11,6 +11,10 @@ from src.monitoring import log_prediction
 from src.dashboard import show_dashboard
 from scipy.stats import ks_2samp
 import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings("ignore")
+import joblib
 
 st.title("AutoML System")
 
@@ -40,6 +44,11 @@ if filename:
         st.write("Numerical Columns:", num_cols)
         st.write("Categorical Columns:", cat_cols)
 
+        report = data_report(df)
+        st.subheader("Dataset Summary")
+        st.write("Shape:", report["Data shape"])
+        st.write("Missing Values:", report["Missing values"])
+        st.write("Data Types:", report["Column datatype"])
 
         suggested = suggest_target(df)
         target = st.selectbox("Select Target Column", df.columns,index=df.columns.get_loc(suggested))
@@ -60,15 +69,6 @@ if filename:
         else:
             problem_type = user_choice
         st.info(f"Problem type is: {problem_type}")
-
-
-
-        report = data_report(df)
-        st.subheader("Dataset Summary")
-        st.write("Shape:", report["Data shape"])
-        st.write("Missing Values:", report["Missing values"])
-        st.write("Data Types:", report["Column datatype"])
-
 
 
         method = st.selectbox(
@@ -193,6 +193,7 @@ if filename:
             )
 
             if new_file:
+                train_df=None
                 new_df = load_data(new_file)
                 if isinstance(new_df, str):
                     st.error(new_df)
@@ -211,21 +212,23 @@ if filename:
 
                 if st.button("Predict", key="predict_btn"):
 
-                    model, version = load_model_by_dataset(model_name_input,dataset_id)
+                    _, version = load_model_by_dataset(model_name_input,dataset_id)
+                    metadata = load_model_metadata(model_name_input, version)
 
-                    if model is None:
-                        st.error("No saved model found")
+                    pipeline_path = metadata.get("pipeline_path")
+                    pipeline = joblib.load(pipeline_path) if pipeline_path else None
+
+                    if pipeline is None:
+                        st.error("No saved pipeline found")
                         return
                     st.info(f"Using model: {model_name_input} (version {version})")
                     
-                    metadata = load_model_metadata(model_name_input, version)
 
                     if metadata is None:
                         st.error("Metadata not found")
                         return
                     
                     train_sample = metadata.get("train_sample", {})
-                    train_df=None
 
                     if not train_sample:
                         st.warning("No training sample found for drift detection")
@@ -235,26 +238,65 @@ if filename:
 
                     train_cols = metadata.get("features", [])
 
+
                     if not train_cols:
                         st.error("Training schema not found in metadata")
                         return
                     
-                    missing_cols = [col for col in train_cols if col not in new_df.columns]
+                    train_cols = metadata.get("features", [])
+
+                    missing_cols = [
+                        col for col in train_cols
+                        if not (col in new_df.columns or col.endswith("_missing"))
+                    ]
+
                     if missing_cols:
-                        st.warning(f"Missing columns detected: {missing_cols}")
+
+                        st.warning(
+                            f"""
+                            Missing columns detected:
+                            {missing_cols}
+
+                            Auto-generating placeholders.
+                            """
+                        )
+
+                        for col in missing_cols:
+
+                            # generic placeholder
+                            new_df[col] = np.nan
+                    
+                    indicator_cols = metadata.get("indicator_cols",[])
+
+                    for col in indicator_cols:
+
+                        if col in new_df.columns:
+
+                            new_df[f"{col}_missing"] = (
+                                new_df[col].isnull().astype(int)
+                            )
+                        else:
+                            new_df[f"{col}_missing"] = 1
+
+                    cols_to_drop = metadata.get("cols_to_drop",[])
+
+                    new_df = new_df.drop(columns=cols_to_drop,errors="ignore")
 
 
-                    #Align schema (CRITICAL STEP)
-                    new_df_aligned = new_df.reindex(columns=train_cols, fill_value=0)
+                    #Align schema (auto handled by the pipelining logic) 
+                    new_df = new_df.reindex(
+                    columns=train_cols,
+                    fill_value=np.nan
+                )                 
 
                     try:
-                        preds = model.predict(new_df_aligned)
+                        preds = pipeline.predict(new_df)
                         
 
                         log_prediction(
                             model_name_input,
                             version,
-                            new_df_aligned,
+                            new_df,
                             preds
                         )
 
@@ -269,54 +311,60 @@ if filename:
                     except Exception as e:
                         st.error(f"Prediction failed: {str(e)}")
 
-                drift_detected = False
-                drift_report = {}
+                    drift_detected = False
+                    drift_report = {}
 
-                if train_df is not None:
+                    if train_df is not None:
 
-                    #check numerical cols drift using KS drift test
-                    for col in num_cols:
+                        #check numerical cols drift using KS drift test
+                        for col in num_cols:
 
-                        if col in new_df.columns and col in train_df.columns:
+                            if col in new_df.columns and col in train_df.columns:
 
-                            stat, p_value = ks_2samp(
-                                train_df[col],
-                                new_df[col]
-                            )
+                                train_values = train_df[col].dropna()
 
-                            drift_report[col] = {
-                                "type": "numerical",
-                                "p_value": float(p_value)
-                            }
+                                new_values = new_df[col].dropna()
+                                if (len(train_values) < 2 or len(new_values) < 2):
+                                    continue
+                                
+                                stat, p_value = ks_2samp(
+                                    train_values,
+                                    new_values
+                                )
 
-                            if p_value < 0.05:
-                                drift_detected = True
-                    
-                    #check categorical cols drift using KS drift test
-                    for col in cat_cols:
+                                drift_report[col] = {
+                                    "type": "numerical",
+                                    "p_value": np.round(float(p_value),5)
+                                }
 
-                        if col in new_df.columns and col in train_df.columns:
+                                if p_value < 0.05:
+                                    drift_detected = True
+                        
+                        #check categorical cols drift using KS drift test
+                        for col in cat_cols:
 
-                            train_dist = train_df[col].value_counts(normalize=True)
-                            new_dist = new_df[col].value_counts(normalize=True)
+                            if col in new_df.columns and col in train_df.columns:
 
-                            diff = (train_dist - new_dist).fillna(0).abs().sum()
+                                train_dist = train_df[col].value_counts(normalize=True)
+                                new_dist = new_df[col].value_counts(normalize=True)
 
-                            drift_report[col] = {
-                                "type": "categorical",
-                                "difference": float(diff)
-                            }
+                                diff = (train_dist - new_dist).fillna(0).abs().sum()
 
-                            if diff > 0.3:
-                                drift_detected = True
-                    
-                    st.write("### Drift Report")
-                    st.write(drift_report)
+                                drift_report[col] = {
+                                    "type": "categorical",
+                                    "difference": np.round(float(diff),5)
+                                }
 
-                    if drift_detected:
-                        st.error("Data Drift Detected — Retraining Recommended")
-                    else:
-                        st.success("No significant drift detected")
+                                if diff > 0.3:
+                                    drift_detected = True
+                        
+                        st.write("### Drift Report")
+                        st.write(drift_report)
+
+                        if drift_detected:
+                            st.error("Data Drift Detected — Retraining Recommended")
+                        else:
+                            st.success("No significant drift detected")
 
                         
         st.header("Training")          

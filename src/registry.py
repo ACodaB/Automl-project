@@ -1,6 +1,8 @@
 import os
 import joblib
 import json
+import pandas as pd
+import numpy as np
 
 REGISTRY_PATH = "model_registry"
 
@@ -41,14 +43,34 @@ def save_model(model, model_name, metadata):
     return model_path, version
 
 def make_json_safe(obj):
+    # dicitionary
     if isinstance(obj, dict):
         return {k: make_json_safe(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+    # list/tuple
+    elif isinstance(obj, (list,tuple)):
         return [make_json_safe(v) for v in obj]
-    elif hasattr(obj, "item"):  # numpy types
+    
+    # pandas dataframe
+    elif isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient="records")
+
+    # pandas series
+    elif isinstance(obj, pd.Series):
+        return obj.tolist()
+
+    # pandas index
+    elif isinstance(obj, pd.Index):
+        return obj.tolist()
+
+    # numpy arrays
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+
+    # numpy scalar
+    elif isinstance(obj, np.generic):
         return obj.item()
-    else:
-        return obj
+
+    return obj
     
 def load_latest_model(model_name):
     model_dir = os.path.join("model_registry", model_name)
@@ -121,8 +143,7 @@ def load_model_metadata(model_name, version):
     with open(meta_path, "r") as f:
         return json.load(f)
     
-import os
-
+    
 def get_registered_models():
 
     if not os.path.exists(REGISTRY_PATH):

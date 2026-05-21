@@ -10,16 +10,27 @@ from src.util import detect_columns
 from src.preprocessing import build_preprocessor, build_pipeline
 from src.registry import save_model,make_json_safe
 import numpy as np
+import joblib
+import os
 
 def run_experiments(X_train, X_test, y_train, y_test,
                     selected_models, problem_type, feature_method,dataset_id):
 
     
+    num_cols, cat_cols = detect_columns(X_train)
+    (preprocessor,X_train,cols_to_drop,indicator_cols) = (build_preprocessor(X_train, num_cols, cat_cols))
+
+    X_test=X_test.drop(columns=cols_to_drop,errors="ignore")
+
+    for col in indicator_cols:
+        X_test[f"{col}_missing"]=(X_test[col].isnull().astype(int))
+        
     X_tune, y_tune = get_tuning_data(X_train, y_train)
 
-    
-    num_cols, cat_cols = detect_columns(X_train)
-    preprocessor = build_preprocessor(X_train, num_cols, cat_cols)
+    X_tune=X_tune.drop(columns=cols_to_drop,errors="ignore")
+
+    for col in indicator_cols:
+        X_tune[f"{col}_missing"]=(X_tune[col].isnull().astype(int))
 
     models_dict = get_models(problem_type)
     results = []
@@ -60,6 +71,13 @@ def run_experiments(X_train, X_test, y_train, y_test,
         pipeline.set_params(**best_params)
         pipeline.fit(X_train, y_train)
 
+        # Create artifacts directory if missing
+        os.makedirs("artifacts", exist_ok=True)
+        pipeline_path = (f"artifacts/{model_name}_pipeline.pkl")
+
+        joblib.dump(pipeline,pipeline_path)
+
+
 
         # evaluate
         preds = pipeline.predict(X_test)
@@ -83,8 +101,11 @@ def run_experiments(X_train, X_test, y_train, y_test,
         "params": best_params,
         "metrics": metrics,
         "features":list(X_train.columns),
+        "cols_to_drop" : cols_to_drop,
+        "indicator_cols" : indicator_cols,
         "dataset_id":dataset_id,
-        "train_sample": train_sample
+        "train_sample": train_sample,
+        "pipeline_path" : pipeline_path
         
         })
         
